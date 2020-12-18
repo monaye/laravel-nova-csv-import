@@ -22,6 +22,28 @@
                         <option v-for="(label, index) in resources" :value="index">{{ label }}</option>
                     </select>
                 </div>
+                <div v-if="validationError.length > 0">
+                    <h2 class="py-4"></h2>
+                    <table class="table w-full">
+                        <thead>
+                            <tr>
+                                <td>列</td>
+                                <td>エラー</td>
+                            </tr>
+                            
+                        </thead>
+                        <tbody>
+                            <tr v-for="error in validationError">
+                                <td>{{ error.row }}</td>
+                                <td>
+                                    <span v-for="err in error.errors">
+                                        {{ err }}
+                                    </span>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <table class="table w-full">
@@ -55,120 +77,141 @@
 
 <script>
 export default {
-    mounted() {
-        const self = this;
+  mounted() {
+    const self = this;
 
-        Nova.request()
-            .get('/nova-vendor/laravel-nova-csv-import/preview/' + this.file)
-            .then(function (response) {
-                self.headings = response.data.headings;
-                self.rows = response.data.sample;
-                self.resources = response.data.resources;
-                self.total_rows = response.data.total_rows;
-                self.fields = response.data.fields;
+    Nova.request()
+      .get("/nova-vendor/laravel-nova-csv-import/preview/" + this.file)
+      .then(function (response) {
+        self.headings = response.data.headings;
+        self.rows = response.data.sample;
+        self.resources = response.data.resources;
+        self.total_rows = response.data.total_rows;
+        self.fields = response.data.fields;
 
-                self.headings.forEach(function (heading) {
-                    self.$set(self.mappings, heading, "");
-                });
-            });
-    },
-    data() {
-        return {
-            headings: [],
-            rows: [],
-            resources: [],
-            fields: [],
-            resource: '',
-            mappings: {},
-        };
-    },
-    props: [
-        'file'
-    ],
-    watch: {
-        resource : function (resource) {
-            const self = this;
+        self.headings.forEach(function (heading) {
+          self.$set(self.mappings, heading, "");
+        });
+      });
+  },
+  data() {
+    return {
+      headings: [],
+      rows: [],
+      resources: [],
+      fields: [],
+      resource: "",
+      mappings: {},
+      validationError: [],
+    };
+  },
+  props: ["file"],
+  watch: {
+    resource: function (resource) {
+      const self = this;
 
-            // Reset all of the headings to blanks
-            this.headings.forEach(function (heading) {
-                self.$set(self.mappings, heading, "");
-            });
+      // Reset all of the headings to blanks
+      this.headings.forEach(function (heading) {
+        self.$set(self.mappings, heading, "");
+      });
 
-            if (resource === "") {
-                return;
-            }
+      if (resource === "") {
+        return;
+      }
 
-            // For each field of the resource, try to find a matching heading and pre-assign
-            this.fields[resource].forEach(function (field_config) {
-                let field = field_config.attribute,
-                    heading_index = self.headings.indexOf(field);
+      // For each field of the resource, try to find a matching heading and pre-assign
+      this.fields[resource].forEach(function (field_config) {
+        let field = field_config.attribute,
+          heading_index = self.headings.indexOf(field);
 
-                if (heading_index < 0) {
-                    return;
-                }
-
-                let heading = self.headings[heading_index];
-
-                if (heading === field) {
-                    self.$set(self.mappings, heading, field);
-                }
-            });
+        if (heading_index < 0) {
+          return;
         }
-    },
-    methods: {
-        runImport: function () {
-            const self = this;
 
-            if (! this.hasValidConfiguration()) {
-                return;
-            }
+        let heading = self.headings[heading_index];
 
-            const button = document.getElementById('run-import');
-            button.innerHTML = 'Importing...';
-            button.setAttribute("disabled", "disabled");
-
-            let data = {
-                resource: this.resource,
-                mappings: this.mappings
-            };
-
-            Nova.request()
-                .post(this.url('import/' + this.file), data)
-                .then(function (response) {
-                    if (response.data.result === 'success') {
-                        self.$toasted.show('All data imported!', {type: "success"});
-                        self.$router.push({name: 'csv-import-review', params: {file: self.file, resource: self.resource}});
-                    } else {
-                        button.innerHTML = 'Import &rightarrow;';
-                        button.removeAttribute("disabled");
-                        self.$toasted.show('There were problems importing some of your data', {type: "error"});
-                    }
-                });
-
-            // this.$router.push({name: 'csv-import-review', params: {file: this.file, resource: this.resource}});
-        },
-        hasValidConfiguration: function () {
-            const mappedColumns = [],
-                mappings = this.mappings;
-
-            Object.keys(mappings).forEach(function (key) {
-                if (mappings[key] !== "") {
-                    mappedColumns.push(key);
-                }
-            });
-
-            return this.resource !== '' && mappedColumns.length > 0;
-        },
-        url: function (path) {
-            return '/nova-vendor/laravel-nova-csv-import/' + path;
+        if (heading === field) {
+          self.$set(self.mappings, heading, field);
         }
+      });
     },
-    computed: {
-        disabledImport: function () {
-            return ! this.hasValidConfiguration();
-        },
-    }
-}
+  },
+  methods: {
+    runImport: function () {
+      const self = this;
+
+      if (!this.hasValidConfiguration()) {
+        return;
+      }
+
+      const button = document.getElementById("run-import");
+      button.innerHTML = "Importing...";
+      button.setAttribute("disabled", "disabled");
+
+      let data = {
+        resource: this.resource,
+        mappings: this.mappings,
+      };
+      this.validationError = [];
+      
+      Nova.request()
+        .post(this.url("import/" + this.file), data)
+        .then(function (response) {
+          if (response.data.result === "success") {
+            self.$toasted.show("All data imported!", { type: "success" });
+            self.$router.push({
+              name: "csv-import-review",
+              params: { file: self.file, resource: self.resource },
+            });
+            
+          } else {
+            button.innerHTML = "Import &rightarrow;";
+            button.removeAttribute("disabled");
+            self.$toasted.show(
+              "There were problems importing some of your data",
+              { type: "error" }
+            );
+            if (
+              response.data.validation &&
+              response.data.validation.length > 0
+            ) {
+
+              self.validationError = response.data.validation;
+            }
+            console.log(
+              "response import",
+              response,
+              response.data.validation,
+              response.data.errors,
+              response.data.failures
+            );
+          }
+        });
+
+      // this.$router.push({name: 'csv-import-review', params: {file: this.file, resource: this.resource}});
+    },
+    hasValidConfiguration: function () {
+      const mappedColumns = [],
+        mappings = this.mappings;
+
+      Object.keys(mappings).forEach(function (key) {
+        if (mappings[key] !== "") {
+          mappedColumns.push(key);
+        }
+      });
+
+      return this.resource !== "" && mappedColumns.length > 0;
+    },
+    url: function (path) {
+      return "/nova-vendor/laravel-nova-csv-import/" + path;
+    },
+  },
+  computed: {
+    disabledImport: function () {
+      return !this.hasValidConfiguration();
+    },
+  },
+};
 </script>
 
 <style>

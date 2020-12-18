@@ -4,12 +4,12 @@ namespace SimonHamp\LaravelNovaCsvImport\Http\Controllers;
 
 use Laravel\Nova\Nova;
 use Laravel\Nova\Resource;
+use Laravel\Nova\Fields\Field;
 use Laravel\Nova\Rules\Relatable;
 use Laravel\Nova\Actions\ActionResource;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use SimonHamp\LaravelNovaCsvImport\Importer;
-use Illuminate\Validation\ValidationException;
-use Laravel\Nova\Fields\Field;
+use Maatwebsite\Excel\Validators\ValidationException;
 
 class ImportController
 {
@@ -42,6 +42,9 @@ class ImportController
             return $this->getAvailableFieldsForImport($resource, $request);
         });
 
+        // echo json_encode($headings);
+        // die;
+
         $resources = $resources->mapWithKeys(function ($resource) {
             return [$resource::uriKey() => $resource::label()];
         });
@@ -54,8 +57,12 @@ class ImportController
         $novaResource = new $resource(new $resource::$model);
         $fieldsCollection = collect($novaResource->creationFields($request));
 
-            if (method_exists($novaResource, 'excludeAttributesFromImport')) {
-                $fieldsCollection = $fieldsCollection->filter(function(Field $field) use ($novaResource, $request) {
+        // echo(json_encode($fieldsCollection));
+
+        // die;
+
+        if (method_exists($novaResource, 'excludeAttributesFromImport')) {
+            $fieldsCollection = $fieldsCollection->filter(function(Field $field) use ($novaResource, $request) {
                 return !in_array($field->attribute, $novaResource::excludeAttributesFromImport($request));
             });
         }
@@ -110,17 +117,35 @@ class ImportController
         $rules = $this->extractValidationRules($request, $resource)->toArray();
         $model_class = get_class($resource->resource);
 
-        $this->importer
+        try {
+            $this->importer
             ->setResource($resource)
             ->setAttributes($attributes)
             ->setAttributeMap($attribute_map)
             ->setRules($rules)
             ->setModelClass($model_class)
             ->import($this->getFilePath($file), null);
+        } catch (ValidationException $e) {
+            $validationError = []; 
+            $failures = $e->failures();
+     
+            foreach ($failures as $failure) {
+               $errorArray = $failure->jsonSerialize();
+               $errorArray['errors'] = array_map(function($value) use ($failure){
+                return str_replace($failure->attribute(), trans('validation.attributes.'.$failure->attribute()), $value); 
+               }, $errorArray['errors']);
 
-        if (! $this->importer->failures()->isEmpty() || ! $this->importer->errors()->isEmpty()) {
-            return response()->json(['result' => 'failure', 'errors' => $this->importer->errors(), 'failures' => $this->importer->failures()]);
+               $validationError[] = $errorArray;
+            }
+            return response()->json(['result' => 'failure', 'validation' => $validationError]);
         }
+
+        
+        // if (
+        //     ($this->importer->failures() && !$this->importer->failures()->isEmpty()) || ( $this->importer->errors() && ! $this->importer->errors()->isEmpty())
+        //   ) {
+        //     return response()->json(['result' => 'failure', 'errors' => $this->importer->errors(), 'failures' => $this->importer->failures()]);
+        // }
 
         return response()->json(['result' => 'success']);
     }
